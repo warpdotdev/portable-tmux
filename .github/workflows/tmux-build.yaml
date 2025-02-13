@@ -1,6 +1,6 @@
 name: Build Portable Tmux
 
-on: push
+on: workflow_dispatch
 
 jobs:
   build-amd64:
