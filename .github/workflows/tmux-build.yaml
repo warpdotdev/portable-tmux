@@ -1,0 +1,158 @@
+name: Build Portable Tmux
+
+on: push
+
+jobs:
+  build-amd64:
+    runs-on: ubuntu-latest
+    container:
+      image: centos:7
+      options: --privileged --pid=host
+      volumes:
+        - ${{ github.workspace }}:/workspace:rw,rshared
+
+    steps:
+      - name: Setup repositories
+        run: |
+          # Update base repo URLs to vault.centos.org since CentOS 7 is EOL
+          sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Base.repo
+          sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Base.repo
+          
+          # Clean and update
+          yum clean all
+          yum makecache
+          yum update -y
+
+      - name: Install dependencies
+        run: |
+          yum install -y \
+            gcc \
+            make \
+            automake \
+            pkg-config \
+            byacc \
+            wget \
+            tar \
+            gzip \
+            bzip2 \
+            glibc-static
+
+      - name: Build ncurses
+        run: |
+          wget https://invisible-mirror.net/archives/ncurses/ncurses-6.4.tar.gz
+          tar xzf ncurses-6.4.tar.gz
+          cd ncurses-6.4
+          ./configure --prefix=$HOME/local --with-shared --with-termlib --enable-pc-files --with-pkg-config-libdir=$HOME/local/lib/pkgconfig --without-tests --without-manpages
+          make
+          make install
+          cd ..
+
+      - name: Build libevent
+        run: |
+          wget https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz
+          tar xzf libevent-2.1.12-stable.tar.gz
+          cd libevent-2.1.12-stable
+          ./configure --prefix=$HOME/local --enable-shared --disable-openssl
+          make
+          make install
+          cd ..
+          
+      - name: Download and extract tmux
+        run: |
+          wget https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz
+          tar xzf tmux-3.5a.tar.gz
+          
+      - name: Build tmux
+        run: |
+          cd tmux-3.5a
+          PKG_CONFIG_PATH=$HOME/local/lib/pkgconfig ./configure --prefix=$HOME/local
+          make
+          make install
+          cd ..
+
+        # It'd be great to upload this as a build artifact instead, but actions/upload-artifact@v4
+        # requires node 20, which requires a more recent version of glibc. We want the old glibc in
+        # order to produce a broadly compatible binary. We're pretty constrained in terms of
+        # potential workarounds -- the easiest seems to be to get an interactive shell on the host
+        # vm where we can use the `gh` binary to upload directly to a release.
+      - name: Bundle and upload
+        run: |
+          cd $HOME
+          tar -czf tmux-amd64.tar.gz local
+          mv tmux-amd64.tar.gz /workspace/
+          nsenter -t 1 -m -u -n -i sh -c "GH_TOKEN=${{ github.token }} gh release upload --clobber --repo warpdotdev/portable-tmux tmux-3.5a ${{ github.workspace }}/tmux-amd64.tar.gz"
+
+
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: centos:7
+      options: --privileged --pid=host
+      volumes:
+        - ${{ github.workspace }}:/workspace:rw,rshared
+
+    steps:
+      - name: Setup repositories
+        run: |
+          # Update base repo URLs to vault.centos.org since CentOS 7 is EOL
+          sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Base.repo
+          sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Base.repo
+
+          # Clean and update
+          yum clean all
+          yum makecache
+          yum update -y
+
+      - name: Install dependencies
+        run: |
+          yum install -y \
+            gcc \
+            make \
+            automake \
+            pkg-config \
+            byacc \
+            wget \
+            tar \
+            gzip \
+            bzip2 \
+            glibc-static
+
+      - name: Build ncurses
+        run: |
+          wget https://invisible-mirror.net/archives/ncurses/ncurses-6.4.tar.gz
+          tar xzf ncurses-6.4.tar.gz
+          cd ncurses-6.4
+          ./configure --prefix=$HOME/local --with-shared --with-termlib --enable-pc-files --with-pkg-config-libdir=$HOME/local/lib/pkgconfig --without-tests --without-manpages
+          make
+          make install
+          cd ..
+
+      - name: Build libevent
+        run: |
+          wget https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz
+          tar xzf libevent-2.1.12-stable.tar.gz
+          cd libevent-2.1.12-stable
+          ./configure --prefix=$HOME/local --enable-shared --disable-openssl
+          make
+          make install
+          cd ..
+
+      - name: Download and extract tmux
+        run: |
+          wget https://github.com/tmux/tmux/releases/download/3.5a/tmux-3.5a.tar.gz
+          tar xzf tmux-3.5a.tar.gz
+
+      - name: Build tmux
+        run: |
+          cd tmux-3.5a
+          PKG_CONFIG_PATH=$HOME/local/lib/pkgconfig ./configure --prefix=$HOME/local
+          make
+          make install
+          cd ..
+
+      - name: Bundle and upload
+        run: |
+          cd $HOME
+          tar -czf tmux-arm64.tar.gz local
+          mv tmux-arm64.tar.gz /workspace/
+          nsenter -t 1 -m -u -n -i sh -c "GH_TOKEN=${{ github.token }} gh release upload --clobber --repo warpdotdev/portable-tmux tmux-3.5a ${{ github.workspace }}/tmux-arm64.tar.gz"
