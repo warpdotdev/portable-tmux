@@ -2,6 +2,9 @@ name: Build Portable Tmux
 
 on: workflow_dispatch
 
+permissions:
+  contents: write # gh release upload attaches the built tarballs to the tmux-3.5a release
+
 jobs:
   build-amd64:
     runs-on: ubuntu-latest
